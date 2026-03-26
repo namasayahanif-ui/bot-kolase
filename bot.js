@@ -3,7 +3,7 @@ const { createCanvas, loadImage } = require("canvas");
 const axios = require("axios");
 const fs = require("fs");
 
-const token = "8473255030:AAEMN5js7HKGeVELH8R-_8DHEmHW-O07iKk";
+const token = process.env.BOT_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
 let userPhotos = {};
