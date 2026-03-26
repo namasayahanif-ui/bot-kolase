@@ -1,19 +1,18 @@
 const express = require("express");
 const Jimp = require("jimp");
-const axios = require("axios");
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
 
-// ===== HEALTH CHECK =====
+// ===== ROOT =====
 app.get("/", (req, res) => {
   res.send("🚀 Kolase API Running");
 });
 
-// ===== API KOLOSA =====
+// ===== KOLOSA =====
 app.post("/kolase", async (req, res) => {
   try {
-    const { fileUrls, caption } = req.body;
+    const { fileUrls, caption, fontSize } = req.body;
 
     if (!fileUrls || fileUrls.length === 0) {
       return res.status(400).send("No images");
@@ -26,12 +25,12 @@ app.post("/kolase", async (req, res) => {
       images.push(img);
     }
 
-    // ===== GRID =====
+    // ===== GRID DINAMIS =====
     const count = images.length;
     const cols = Math.ceil(Math.sqrt(count));
     const rows = Math.ceil(count / cols);
 
-    const size = 1000;
+    const size = 1200;
     const cellW = size / cols;
     const cellH = size / rows;
 
@@ -46,25 +45,44 @@ app.post("/kolase", async (req, res) => {
       canvas.composite(img, x, y);
     });
 
-    // ===== TEXT (SIMPLE) =====
+    // ===== TEXT STYLE PRO =====
     if (caption) {
-      const fontWhite = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
-      const fontBlack = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
 
-      const textHeight = Jimp.measureTextHeight(fontWhite, caption, size);
+      // pakai font besar default
+      const fontBlack = await Jimp.loadFont(Jimp.FONT_SANS_128_BLACK);
+      const fontWhite = await Jimp.loadFont(Jimp.FONT_SANS_128_WHITE);
+
+      const text = caption.toUpperCase();
+
+      const textWidth = Jimp.measureText(fontBlack, text);
+      const textHeight = Jimp.measureTextHeight(fontBlack, text, size);
+
+      const centerX = (size / 2) - (textWidth / 2);
       const centerY = (size / 2) - (textHeight / 2);
 
-      // shadow
-      canvas.print(fontBlack, 5, centerY + 5, {
-        text: caption,
-        alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
-      }, size);
+      // ===== OUTLINE HITAM (REAL TEBAL) =====
+      const outlineSize = 6;
 
-      // text
-      canvas.print(fontWhite, 0, centerY, {
-        text: caption,
-        alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
-      }, size);
+      for (let dx = -outlineSize; dx <= outlineSize; dx++) {
+        for (let dy = -outlineSize; dy <= outlineSize; dy++) {
+          if (dx !== 0 || dy !== 0) {
+            canvas.print(fontBlack, centerX + dx, centerY + dy, text);
+          }
+        }
+      }
+
+      // ===== TEXT ORANGE =====
+      // trik: kita render putih lalu tint jadi orange
+      const textLayer = new Jimp(size, size, 0x00000000);
+
+      textLayer.print(fontWhite, centerX, centerY, text);
+
+      // warna orange terang
+      textLayer.color([
+        { apply: "mix", params: ["#ff7a00", 100] }
+      ]);
+
+      canvas.composite(textLayer, 0, 0);
     }
 
     const buffer = await canvas.getBufferAsync(Jimp.MIME_JPEG);
