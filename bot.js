@@ -22,7 +22,7 @@ function getTodayDate() {
   return `${day} ${months[now.getMonth()]} ${now.getFullYear()}`;
 }
 
-// ===== FOTO (AUTO COUNT, NO SPAM) =====
+// ===== FOTO (ANTI SPAM) =====
 bot.on("photo", async (msg) => {
   const chatId = msg.chat.id;
   const user = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
@@ -33,7 +33,7 @@ bot.on("photo", async (msg) => {
 
   userPhotos[chatId].push(fileId);
 
-  // debounce biar ga spam
+  // debounce
   if (photoTimeout[chatId]) clearTimeout(photoTimeout[chatId]);
 
   photoTimeout[chatId] = setTimeout(() => {
@@ -53,7 +53,7 @@ bot.on("photo", async (msg) => {
         }
       }
     );
-  }, 1000); // tunggu 1 detik biar kumpulin foto
+  }, 1000);
 });
 
 // ===== BUTTON =====
@@ -130,18 +130,19 @@ bot.on("text", async (msg) => {
       canvas.composite(img, x, y);
     });
 
-    // ===== FONT =====
+    // ===== TEXT LAYER (ANTI BLEED FIX) =====
+    const textLayer = new Jimp(size, size, 0x00000000);
+
     const fontWhite = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
     const fontBlack = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
 
     const textBlock = lines.join("\n");
 
-    // ===== HITUNG TENGAH PRESISI =====
     const textHeight = Jimp.measureTextHeight(fontWhite, textBlock, size);
     const centerY = (size / 2) - (textHeight / 2);
 
     // ===== SHADOW =====
-    canvas.print(fontBlack, 6, centerY + 6, {
+    textLayer.print(fontBlack, 6, centerY + 6, {
       text: textBlock,
       alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
     }, size);
@@ -154,30 +155,34 @@ bot.on("text", async (msg) => {
     ];
 
     offsets.forEach(([ox, oy]) => {
-      canvas.print(fontBlack, ox, centerY + oy, {
+      textLayer.print(fontBlack, ox, centerY + oy, {
         text: textBlock,
         alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
       }, size);
     });
 
     // ===== TEXT PUTIH =====
-    canvas.print(fontWhite, 0, centerY, {
+    textLayer.print(fontWhite, 0, centerY, {
       text: textBlock,
       alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
     }, size);
 
     // ===== UBAH JADI ORANGE (TEXT ONLY) =====
-    canvas.scan(0, 0, size, size, function (x, y, idx) {
+    textLayer.scan(0, 0, size, size, function (x, y, idx) {
       const r = this.bitmap.data[idx + 0];
       const g = this.bitmap.data[idx + 1];
       const b = this.bitmap.data[idx + 2];
+      const a = this.bitmap.data[idx + 3];
 
-      if (r > 200 && g > 200 && b > 200) {
+      if (a > 0 && r > 200 && g > 200 && b > 200) {
         this.bitmap.data[idx + 0] = 255;
-        this.bitmap.data[idx + 1] = 100;
+        this.bitmap.data[idx + 1] = 90;
         this.bitmap.data[idx + 2] = 0;
       }
     });
+
+    // ===== GABUNG =====
+    canvas.composite(textLayer, 0, 0);
 
     const buffer = await canvas.getBufferAsync(Jimp.MIME_JPEG);
 
