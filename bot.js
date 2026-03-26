@@ -7,6 +7,7 @@ const bot = new TelegramBot(token, { polling: true });
 
 let userPhotos = {};
 let waitingCaption = {};
+let photoTimeout = {};
 
 // ===== DATE =====
 function getTodayDate() {
@@ -21,7 +22,7 @@ function getTodayDate() {
   return `${day} ${months[now.getMonth()]} ${now.getFullYear()}`;
 }
 
-// ===== TERIMA FOTO =====
+// ===== FOTO (AUTO COUNT, NO SPAM) =====
 bot.on("photo", async (msg) => {
   const chatId = msg.chat.id;
   const user = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
@@ -32,22 +33,27 @@ bot.on("photo", async (msg) => {
 
   userPhotos[chatId].push(fileId);
 
-  const total = userPhotos[chatId].length;
+  // debounce biar ga spam
+  if (photoTimeout[chatId]) clearTimeout(photoTimeout[chatId]);
 
-  bot.sendMessage(
-    chatId,
-    `📸 Foto masuk (${total}), ada lagi yang mau di upload?\n${user}`,
-    {
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "Sudah?", callback_data: "done" },
-            { text: "Reset", callback_data: "reset" }
+  photoTimeout[chatId] = setTimeout(() => {
+    const total = userPhotos[chatId].length;
+
+    bot.sendMessage(
+      chatId,
+      `📸 Foto masuk (${total}), ada lagi yang mau di upload?\n${user}`,
+      {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "Sudah?", callback_data: "done" },
+              { text: "Reset", callback_data: "reset" }
+            ]
           ]
-        ]
+        }
       }
-    }
-  );
+    );
+  }, 1000); // tunggu 1 detik biar kumpulin foto
 });
 
 // ===== BUTTON =====
@@ -87,9 +93,7 @@ bot.on("text", async (msg) => {
 
   bot.sendMessage(chatId, "⏳ Wait ya rekan kami kolase dulu...");
 
-  let text = msg.text;
-
-  let parts = text.split("|");
+  let parts = msg.text.split("|");
   let caption = parts[0].trim().toUpperCase();
 
   caption += `\n${getTodayDate()}`;
@@ -121,22 +125,9 @@ bot.on("text", async (msg) => {
 
     images.forEach((img, i) => {
       img.cover(cellW, cellH);
-
       const x = (i % cols) * cellW;
       const y = Math.floor(i / cols) * cellH;
-
       canvas.composite(img, x, y);
-    });
-
-    // ===== GARIS TENGAH =====
-    const white = 0xffffffff;
-
-    const lineThickness = 5;
-
-    canvas.scan(0, 0, size, size, function (x, y, idx) {
-      if (x === size / 2 || y === size / 2) {
-        this.bitmap.data.writeUInt32BE(white, idx);
-      }
     });
 
     // ===== FONT =====
@@ -145,18 +136,21 @@ bot.on("text", async (msg) => {
 
     const textBlock = lines.join("\n");
 
-    const centerY = size / 2 - 100;
+    // ===== HITUNG TENGAH PRESISI =====
+    const textHeight = Jimp.measureTextHeight(fontWhite, textBlock, size);
+    const centerY = (size / 2) - (textHeight / 2);
 
     // ===== SHADOW =====
-    canvas.print(fontBlack, 5, centerY + 5, {
+    canvas.print(fontBlack, 6, centerY + 6, {
       text: textBlock,
       alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
     }, size);
 
-    // ===== OUTLINE (FAKE STROKE) =====
+    // ===== OUTLINE TEBAL =====
     const offsets = [
-      [-3,0],[3,0],[0,-3],[0,3],
-      [-3,-3],[3,3],[-3,3],[3,-3]
+      [-4,0],[4,0],[0,-4],[0,4],
+      [-4,-4],[4,4],[-4,4],[4,-4],
+      [-2,0],[2,0],[0,-2],[0,2]
     ];
 
     offsets.forEach(([ox, oy]) => {
@@ -166,16 +160,24 @@ bot.on("text", async (msg) => {
       }, size);
     });
 
-    // ===== TEXT UTAMA (ORANGE) =====
+    // ===== TEXT PUTIH =====
     canvas.print(fontWhite, 0, centerY, {
       text: textBlock,
       alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
     }, size);
 
-    // 🔥 TINT ORANGE
-    canvas.color([
-      { apply: "mix", params: ["#ff5c00", 30] }
-    ]);
+    // ===== UBAH JADI ORANGE (TEXT ONLY) =====
+    canvas.scan(0, 0, size, size, function (x, y, idx) {
+      const r = this.bitmap.data[idx + 0];
+      const g = this.bitmap.data[idx + 1];
+      const b = this.bitmap.data[idx + 2];
+
+      if (r > 200 && g > 200 && b > 200) {
+        this.bitmap.data[idx + 0] = 255;
+        this.bitmap.data[idx + 1] = 100;
+        this.bitmap.data[idx + 2] = 0;
+      }
+    });
 
     const buffer = await canvas.getBufferAsync(Jimp.MIME_JPEG);
 
