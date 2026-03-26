@@ -3,7 +3,34 @@ const Jimp = require("jimp");
 const axios = require("axios");
 
 const token = process.env.BOT_TOKEN;
-const bot = new TelegramBot(token, { polling: true });
+
+// ===== MODE HEMAT =====
+const IDLE_TIME = 5 * 60 * 1000; // 5 menit
+let lastActivity = Date.now();
+let isIdle = false;
+
+function updateActivity() {
+  lastActivity = Date.now();
+  if (isIdle) {
+    console.log("🔥 BOT ACTIVE AGAIN");
+    isIdle = false;
+  }
+}
+
+setInterval(() => {
+  if (Date.now() - lastActivity > IDLE_TIME) {
+    if (!isIdle) {
+      console.log("💤 BOT IDLE MODE");
+      isIdle = true;
+    }
+  }
+}, 60000);
+
+const bot = new TelegramBot(token, {
+  polling: {
+    interval: 2000
+  }
+});
 
 let userPhotos = {};
 let waitingCaption = {};
@@ -22,8 +49,10 @@ function getTodayDate() {
   return `${day} ${months[now.getMonth()]} ${now.getFullYear()}`;
 }
 
-// ===== FOTO (ANTI SPAM) =====
+// ===== FOTO =====
 bot.on("photo", async (msg) => {
+  updateActivity();
+
   const chatId = msg.chat.id;
   const user = msg.from.username ? `@${msg.from.username}` : msg.from.first_name;
 
@@ -33,7 +62,6 @@ bot.on("photo", async (msg) => {
 
   userPhotos[chatId].push(fileId);
 
-  // debounce
   if (photoTimeout[chatId]) clearTimeout(photoTimeout[chatId]);
 
   photoTimeout[chatId] = setTimeout(() => {
@@ -58,6 +86,8 @@ bot.on("photo", async (msg) => {
 
 // ===== BUTTON =====
 bot.on("callback_query", async (query) => {
+  updateActivity();
+
   const chatId = query.message.chat.id;
 
   if (query.data === "done") {
@@ -85,6 +115,8 @@ bot.on("callback_query", async (query) => {
 
 // ===== CAPTION =====
 bot.on("text", async (msg) => {
+  updateActivity();
+
   const chatId = msg.chat.id;
 
   if (!waitingCaption[chatId]) return;
@@ -130,7 +162,7 @@ bot.on("text", async (msg) => {
       canvas.composite(img, x, y);
     });
 
-    // ===== TEXT LAYER (ANTI BLEED FIX) =====
+    // ===== TEXT LAYER =====
     const textLayer = new Jimp(size, size, 0x00000000);
 
     const fontWhite = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
@@ -141,13 +173,13 @@ bot.on("text", async (msg) => {
     const textHeight = Jimp.measureTextHeight(fontWhite, textBlock, size);
     const centerY = (size / 2) - (textHeight / 2);
 
-    // ===== SHADOW =====
+    // shadow
     textLayer.print(fontBlack, 6, centerY + 6, {
       text: textBlock,
       alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
     }, size);
 
-    // ===== OUTLINE TEBAL =====
+    // outline
     const offsets = [
       [-4,0],[4,0],[0,-4],[0,4],
       [-4,-4],[4,4],[-4,4],[4,-4],
@@ -161,13 +193,13 @@ bot.on("text", async (msg) => {
       }, size);
     });
 
-    // ===== TEXT PUTIH =====
+    // text putih
     textLayer.print(fontWhite, 0, centerY, {
       text: textBlock,
       alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
     }, size);
 
-    // ===== UBAH JADI ORANGE (TEXT ONLY) =====
+    // ubah ke orange (text only)
     textLayer.scan(0, 0, size, size, function (x, y, idx) {
       const r = this.bitmap.data[idx + 0];
       const g = this.bitmap.data[idx + 1];
@@ -181,7 +213,6 @@ bot.on("text", async (msg) => {
       }
     });
 
-    // ===== GABUNG =====
     canvas.composite(textLayer, 0, 0);
 
     const buffer = await canvas.getBufferAsync(Jimp.MIME_JPEG);
