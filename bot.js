@@ -40,27 +40,44 @@ bot.on("photo", async (msg) => {
     {
       reply_markup: {
         inline_keyboard: [
-          [{ text: "Sudah?", callback_data: "done" }]
+          [
+            { text: "Sudah?", callback_data: "done" },
+            { text: "Reset", callback_data: "reset" }
+          ]
         ]
       }
     }
   );
 });
 
-// ===== TOMBOL =====
+// ===== BUTTON =====
 bot.on("callback_query", async (query) => {
   const chatId = query.message.chat.id;
 
   if (query.data === "done") {
+    if (!userPhotos[chatId] || userPhotos[chatId].length === 0) {
+      bot.sendMessage(chatId, "❌ Belum ada foto");
+      return;
+    }
+
     waitingCaption[chatId] = true;
 
     bot.sendMessage(chatId,
       "📝 Kirim caption + ukuran font\nContoh:\nTEXT\n|60"
     );
   }
+
+  if (query.data === "reset") {
+    userPhotos[chatId] = [];
+    waitingCaption[chatId] = false;
+
+    bot.sendMessage(chatId,
+      "Woke shaapp, silakan upload ulang dari awal rekan"
+    );
+  }
 });
 
-// ===== TERIMA CAPTION =====
+// ===== CAPTION =====
 bot.on("text", async (msg) => {
   const chatId = msg.chat.id;
 
@@ -72,16 +89,10 @@ bot.on("text", async (msg) => {
 
   let text = msg.text;
 
-  let fontSize = 50;
   let parts = text.split("|");
-
-  if (parts.length > 1) {
-    fontSize = parseInt(parts[1]) || 50;
-  }
-
   let caption = parts[0].trim().toUpperCase();
-  caption += `\n${getTodayDate()}`;
 
+  caption += `\n${getTodayDate()}`;
   const lines = caption.split("\n");
 
   const fileIds = userPhotos[chatId];
@@ -117,23 +128,54 @@ bot.on("text", async (msg) => {
       canvas.composite(img, x, y);
     });
 
-    // ===== TEXT =====
-    const font = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
+    // ===== GARIS TENGAH =====
+    const white = 0xffffffff;
+
+    const lineThickness = 5;
+
+    canvas.scan(0, 0, size, size, function (x, y, idx) {
+      if (x === size / 2 || y === size / 2) {
+        this.bitmap.data.writeUInt32BE(white, idx);
+      }
+    });
+
+    // ===== FONT =====
+    const fontWhite = await Jimp.loadFont(Jimp.FONT_SANS_64_WHITE);
+    const fontBlack = await Jimp.loadFont(Jimp.FONT_SANS_64_BLACK);
 
     const textBlock = lines.join("\n");
 
-    canvas.print(
-      font,
-      0,
-      size / 2 - 100,
-      {
+    const centerY = size / 2 - 100;
+
+    // ===== SHADOW =====
+    canvas.print(fontBlack, 5, centerY + 5, {
+      text: textBlock,
+      alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
+    }, size);
+
+    // ===== OUTLINE (FAKE STROKE) =====
+    const offsets = [
+      [-3,0],[3,0],[0,-3],[0,3],
+      [-3,-3],[3,3],[-3,3],[3,-3]
+    ];
+
+    offsets.forEach(([ox, oy]) => {
+      canvas.print(fontBlack, ox, centerY + oy, {
         text: textBlock,
-        alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER,
-        alignmentY: Jimp.VERTICAL_ALIGN_MIDDLE
-      },
-      size,
-      200
-    );
+        alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
+      }, size);
+    });
+
+    // ===== TEXT UTAMA (ORANGE) =====
+    canvas.print(fontWhite, 0, centerY, {
+      text: textBlock,
+      alignmentX: Jimp.HORIZONTAL_ALIGN_CENTER
+    }, size);
+
+    // 🔥 TINT ORANGE
+    canvas.color([
+      { apply: "mix", params: ["#ff5c00", 30] }
+    ]);
 
     const buffer = await canvas.getBufferAsync(Jimp.MIME_JPEG);
 
